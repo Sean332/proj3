@@ -706,6 +706,24 @@ public final class DBNinja {
 		 * Query the database fro the base customer price for that size and crust pizza.
 		 * 
 		*/
+		connect_to_db();
+		try {
+
+			String query = "SELECT base_price FROM pizza_prices WHERE size = ? AND crust = ?";
+			PreparedStatement stmt = conn.prepareStatement(query);
+			stmt.setString(1, size);
+			stmt.setString(2, crust);
+			ResultSet rs = stmt.executeQuery();
+
+			if (rs.next()) {
+				return rs.getDouble("base_price");
+			}
+		} catch (SQLException e) {
+			e.printStackTrace();
+			throw e;
+		} finally {
+			conn.close();
+		}
 		return 0.0;
 	}
 
