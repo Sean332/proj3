@@ -709,14 +709,14 @@ public final class DBNinja {
 		connect_to_db();
 		try {
 
-			String query = "SELECT base_price FROM pizza_prices WHERE size = ? AND crust = ?";
+			String query = "SELECT baseprice_CustPrice FROM baseprice WHERE baseprice_Size = ? AND basepriceCrustType = ?";
 			PreparedStatement stmt = conn.prepareStatement(query);
 			stmt.setString(1, size);
 			stmt.setString(2, crust);
 			ResultSet rs = stmt.executeQuery();
 
 			if (rs.next()) {
-				return rs.getDouble("base_price");
+				return rs.getDouble("baseprice_CustPrice");
 			}
 		} catch (SQLException e) {
 			e.printStackTrace();
@@ -733,6 +733,25 @@ public final class DBNinja {
 		 * Query the database fro the base business price for that size and crust pizza.
 		 * 
 		*/
+
+		connect_to_db();
+		try {
+
+			String query = "SELECT baseprice_BusPrice FROM baseprice WHERE baseprice_Size = ? AND basepriceCrustType = ?";
+			PreparedStatement stmt = conn.prepareStatement(query);
+			stmt.setString(1, size);
+			stmt.setString(2, crust);
+			ResultSet rs = stmt.executeQuery();
+
+			if (rs.next()) {
+				return rs.getDouble("baseprice_BusPrice");
+			}
+		} catch (SQLException e) {
+			e.printStackTrace();
+			throw e;
+		} finally {
+			conn.close();
+		}
 		return 0.0;
 	}
 
@@ -752,6 +771,18 @@ public final class DBNinja {
 		 * better.
 		 * 
 		 */
+		connect_to_db();
+		try {
+			String query = "SELECT * FROM toppingpopularity ORDER BY toppingpopularity_ToppingPopularity DESC";
+			Statement stmt = conn.createStatement();
+			ResultSet rs = stmt.executeQuery(query);
+			while (rs.next()) {
+				int toppingID = rs.getInt("toppingpopularity_ToppingID");
+				String toppingName = rs.getString("toppingpopularity_ToppingName");
+				int popularity = rs.getInt("toppingpopularity_Popularity");
+				System.out.printf("%-10s %-10s %d\n", toppingName, toppingID, popularity);
+			}
+		}
 	}
 	
 	public static void printProfitByPizzaReport() throws SQLException, IOException 
@@ -786,6 +817,7 @@ public final class DBNinja {
 		 * better.
 		 * 
 		 */
+		
 	}
 	
 	
