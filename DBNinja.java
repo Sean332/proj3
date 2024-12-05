@@ -133,7 +133,7 @@ public final class DBNinja {
 				deliveryStmt.setString(4, addressParts[2]); // City
 				deliveryStmt.setString(5, addressParts[3]); // State
 				deliveryStmt.setInt(6, Integer.parseInt(addressParts[4])); // Zip
-				deliveryStmt.setBoolean(7, deliveryOrder.getIsDelivered());
+				deliveryStmt.setBoolean(7, deliveryOrder.getIsComplete());
 				deliveryStmt.executeUpdate();
 			}
 
@@ -224,11 +224,11 @@ public final class DBNinja {
 			}
 
 			// Add discounts
-			for (Discount d : p.getDiscounts()) {
+			for (Discount d2 : p.getDiscounts()) {
 				String pizzaDiscountQuery = "INSERT INTO pizza_discount (pizza_PizzaID, discount_DiscountID) VALUES (?, ?)";
 				PreparedStatement pizzaDiscountStmt = conn.prepareStatement(pizzaDiscountQuery);
 				pizzaDiscountStmt.setInt(1, pizzaID);
-				pizzaDiscountStmt.setInt(2, d.getDiscountID());
+				pizzaDiscountStmt.setInt(2, d2.getDiscountID());
 				pizzaDiscountStmt.executeUpdate();
 			}
 
@@ -773,7 +773,7 @@ public final class DBNinja {
 		 */
 		connect_to_db();
 		try {
-			String query = "SELECT * FROM toppingpopularity ORDER BY toppingpopularity_ToppingPopularity DESC";
+			String query = "SELECT * FROM ToppingPopularity";
 			Statement stmt = conn.createStatement();
 			ResultSet rs = stmt.executeQuery(query);
 			while (rs.next()) {
@@ -782,6 +782,11 @@ public final class DBNinja {
 				int popularity = rs.getInt("toppingpopularity_Popularity");
 				System.out.printf("%-10s %-10s %d\n", toppingName, toppingID, popularity);
 			}
+		} catch (SQLException e) {
+			e.printStackTrace();
+			throw e;
+		} finally {
+			conn.close();
 		}
 	}
 	
