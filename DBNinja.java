@@ -133,7 +133,7 @@ public final class DBNinja {
 				deliveryStmt.setString(4, addressParts[2]); // City
 				deliveryStmt.setString(5, addressParts[3]); // State
 				deliveryStmt.setInt(6, Integer.parseInt(addressParts[4])); // Zip
-				deliveryStmt.setBoolean(7, deliveryOrder.getIsDelivered());
+				//deliveryStmt.setBoolean(7, deliveryOrder.isDelivered);
 				deliveryStmt.executeUpdate();
 			}
 
@@ -224,11 +224,11 @@ public final class DBNinja {
 			}
 
 			// Add discounts
-			for (Discount d : p.getDiscounts()) {
+			for (Discount dis : p.getDiscounts()) {
 				String pizzaDiscountQuery = "INSERT INTO pizza_discount (pizza_PizzaID, discount_DiscountID) VALUES (?, ?)";
 				PreparedStatement pizzaDiscountStmt = conn.prepareStatement(pizzaDiscountQuery);
 				pizzaDiscountStmt.setInt(1, pizzaID);
-				pizzaDiscountStmt.setInt(2, d.getDiscountID());
+				pizzaDiscountStmt.setInt(2, dis.getDiscountID());
 				pizzaDiscountStmt.executeUpdate();
 			}
 
@@ -441,7 +441,76 @@ public final class DBNinja {
 		 * and return a list of those orders.
 		 *  
 		 */
-		 return null;
+		 connect_to_db();
+		 ArrayList<Order> orders = new ArrayList<>();
+
+		 try {
+			 // Prepare SQL query to fetch orders for the given date
+			 String query = "SELECT * FROM ordertable WHERE DATE(ordertable_OrderDateTime) = ? ORDER BY ordertable_OrderDateTime ASC";
+			 PreparedStatement stmt = conn.prepareStatement(query);
+			 stmt.setString(1, date); // Replace placeholder with the date provided
+
+			 // Execute the query
+			 ResultSet rs = stmt.executeQuery();
+
+			 while (rs.next()) {
+				 int orderID = rs.getInt("ordertable_OrderID");
+				 int custID = rs.getInt("customer_CustID");
+				 String orderType = rs.getString("ordertable_OrderType");
+				 String orderDateTime = rs.getString("ordertable_OrderDateTime");
+				 double custPrice = rs.getDouble("ordertable_CustPrice");
+				 double busPrice = rs.getDouble("ordertable_BusPrice");
+				 boolean isComplete = rs.getBoolean("ordertable_IsComplete");
+
+				 // Build the appropriate Order object based on orderType
+				 Order order;
+				 if (orderType.equals(DBNinja.dine_in)) {
+					 String dineinQuery = "SELECT dinein_TableNum FROM dinein WHERE ordertable_OrderID = ?";
+					 PreparedStatement dineinStmt = conn.prepareStatement(dineinQuery);
+					 dineinStmt.setInt(1, orderID);
+					 ResultSet dineinRs = dineinStmt.executeQuery();
+					 int tableNum = dineinRs.next() ? dineinRs.getInt("dinein_TableNum") : -1;
+					 order = new DineinOrder(orderID, custID, orderDateTime, custPrice, busPrice, isComplete, tableNum);
+				 } else if (orderType.equals(DBNinja.pickup)) {
+					 String pickupQuery = "SELECT pickup_IsPickedUp FROM pickup WHERE ordertable_OrderID = ?";
+					 PreparedStatement pickupStmt = conn.prepareStatement(pickupQuery);
+					 pickupStmt.setInt(1, orderID);
+					 ResultSet pickupRs = pickupStmt.executeQuery();
+					 boolean isPickedUp = pickupRs.next() && pickupRs.getBoolean("pickup_IsPickedUp");
+					 order = new PickupOrder(orderID, custID, orderDateTime, custPrice, busPrice, isPickedUp, isComplete);
+				 } else { // Delivery
+					 String deliveryQuery = "SELECT delivery_HouseNum, delivery_Street, delivery_City, delivery_State, delivery_Zip, delivery_IsDelivered " +
+							 "FROM delivery WHERE ordertable_OrderID = ?";
+					 PreparedStatement deliveryStmt = conn.prepareStatement(deliveryQuery);
+					 deliveryStmt.setInt(1, orderID);
+					 ResultSet deliveryRs = deliveryStmt.executeQuery();
+					 if (deliveryRs.next()) {
+						 String address = deliveryRs.getInt("delivery_HouseNum") + "\t" +
+								 deliveryRs.getString("delivery_Street") + "\t" +
+								 deliveryRs.getString("delivery_City") + "\t" +
+								 deliveryRs.getString("delivery_State") + "\t" +
+								 deliveryRs.getInt("delivery_Zip");
+						 boolean isDelivered = deliveryRs.getBoolean("delivery_IsDelivered");
+						 order = new DeliveryOrder(orderID, custID, orderDateTime, custPrice, busPrice, isComplete, address, isDelivered);
+					 } else {
+						 throw new SQLException("Delivery details missing for order ID " + orderID);
+					 }
+				 }
+
+				 // Fetch pizzas and discounts for this order
+				 order.setPizzaList(getPizzas(order));
+				 order.setDiscountList(getDiscounts(order));
+
+				 orders.add(order);
+			 }
+		 } catch (SQLException e) {
+			 e.printStackTrace();
+			 throw e;
+		 } finally {
+			 conn.close();
+		 }
+
+		 return orders;
 	}
 		
 	public static ArrayList<Discount> getDiscountList() throws SQLException, IOException 
@@ -451,7 +520,35 @@ public final class DBNinja {
 		 * return them in an arrayList of discounts ordered by discount name.
 		 * 
 		*/
-		return null;
+		connect_to_db();
+
+		ArrayList<Discount> discounts = new ArrayList<>();
+
+		try {
+			// Prepare SQL query to fetch all discounts ordered by name
+			String query = "SELECT * FROM discount ORDER BY discount_DiscountName ASC";
+			Statement stmt = conn.createStatement();
+
+			// Execute the query
+			ResultSet rs = stmt.executeQuery(query);
+
+			// Populate the ArrayList with Discount objects
+			while (rs.next()) {
+				discounts.add(new Discount(
+						rs.getInt("discount_DiscountID"),
+						rs.getString("discount_DiscountName"),
+						rs.getDouble("discount_Amount"),
+						rs.getBoolean("discount_IsPercent")
+				));
+			}
+		} catch (SQLException e) {
+			e.printStackTrace();
+			throw e;
+		} finally {
+			conn.close();
+		}
+
+		return discounts;
 	}
 
 	public static Discount findDiscountByName(String name) throws SQLException, IOException 
@@ -462,7 +559,36 @@ public final class DBNinja {
 		 * If it's not found....then return null
 		 *  
 		 */
-		 return null;
+		connect_to_db();
+
+		Discount discount = null;
+
+		try {
+			// Prepare SQL query
+			String query = "SELECT * FROM discount WHERE discount_DiscountName = ?";
+			PreparedStatement stmt = conn.prepareStatement(query);
+			stmt.setString(1, name); // Replace the placeholder with the name
+
+			// Execute the query
+			ResultSet rs = stmt.executeQuery();
+
+			// If a result is found, create the Discount object
+			if (rs.next()) {
+				discount = new Discount(
+						rs.getInt("discount_DiscountID"),
+						rs.getString("discount_DiscountName"),
+						rs.getDouble("discount_Amount"),
+						rs.getBoolean("discount_IsPercent")
+				);
+			}
+		} catch (SQLException e) {
+			e.printStackTrace();
+			throw e;
+		} finally {
+			conn.close();
+		}
+
+		return discount;
 	}
 
 
@@ -473,7 +599,35 @@ public final class DBNinja {
 		 * Don't forget to order the data coming from the database appropriately.
 		 * 
 		*/
-		return null;
+		connect_to_db();
+
+		ArrayList<Customer> customers = new ArrayList<>();
+
+		try {
+			// Prepare SQL query to fetch all customers ordered by first and last name
+			String query = "SELECT * FROM customer ORDER BY customer_FName ASC, customer_LName ASC";
+			Statement stmt = conn.createStatement();
+
+			// Execute the query
+			ResultSet rs = stmt.executeQuery(query);
+
+			// Populate the ArrayList with Customer objects
+			while (rs.next()) {
+				customers.add(new Customer(
+						rs.getInt("customer_CustID"),
+						rs.getString("customer_FName"),
+						rs.getString("customer_LName"),
+						rs.getString("customer_PhoneNum")
+				));
+			}
+		} catch (SQLException e) {
+			e.printStackTrace();
+			throw e;
+		} finally {
+			conn.close();
+		}
+
+		return customers;
 	}
 
 	public static Customer findCustomerByPhone(String phoneNumber)  throws SQLException, IOException 
@@ -484,7 +638,36 @@ public final class DBNinja {
 		 * If it's not found....then return null
 		 *  
 		 */
-		 return null;
+		connect_to_db();
+
+		Customer customer = null;
+
+		try {
+			// Prepare SQL query
+			String query = "SELECT * FROM customer WHERE customer_PhoneNum = ?";
+			PreparedStatement stmt = conn.prepareStatement(query);
+			stmt.setString(1, phoneNumber); // Replace the placeholder with the phone number
+
+			// Execute the query
+			ResultSet rs = stmt.executeQuery();
+
+			// If a result is found, create the Customer object
+			if (rs.next()) {
+				customer = new Customer(
+						rs.getInt("customer_CustID"),
+						rs.getString("customer_FName"),
+						rs.getString("customer_LName"),
+						rs.getString("customer_PhoneNum")
+				);
+			}
+		} catch (SQLException e) {
+			e.printStackTrace();
+			throw e;
+		} finally {
+			conn.close();
+		}
+
+		return customer;
 	}
 
 	public static String getCustomerName(int CustID) throws SQLException, IOException 
@@ -557,7 +740,35 @@ public final class DBNinja {
 		 * Don't forget to order the data coming from the database appropriately.
 		 * 
 		 */
-		return null;
+		connect_to_db();
+		ArrayList<Topping> toppings = new ArrayList<>();
+		try {
+			String query = "SELECT * FROM topping ORDER BY topping_TopName ASC";
+			Statement stmt = conn.createStatement();
+			ResultSet rs = stmt.executeQuery(query);
+
+			while (rs.next()) {
+				int topID = rs.getInt("topping_TopID");
+				String topName = rs.getString("topping_TopName");
+				double smallAmt = rs.getDouble("topping_SmallAMT");
+				double medAmt = rs.getDouble("topping_MedAMT");
+				double lgAmt = rs.getDouble("topping_LgAMT");
+				double xlAmt = rs.getDouble("topping_XLAMT");
+				double custPrice = rs.getDouble("topping_CustPrice");
+				double busPrice = rs.getDouble("topping_BusPrice");
+				int minINVT = rs.getInt("topping_MinINVT");
+				int curINVT = rs.getInt("topping_CurINVT");
+
+				Topping topping = new Topping(topID, topName, smallAmt, medAmt, lgAmt, xlAmt, custPrice, busPrice, minINVT, curINVT);
+				toppings.add(topping);
+			}
+		} catch (SQLException e) {
+			e.printStackTrace();
+			throw e;
+		} finally {
+			conn.close();
+		}
+		return toppings;
 	}
 
 	public static Topping findToppingByName(String name) throws SQLException, IOException 
@@ -568,7 +779,42 @@ public final class DBNinja {
 		 * If it's not found....then return null
 		 *  
 		 */
-		 return null;
+		connect_to_db();
+
+		Topping topping = null;
+
+		try {
+			// Prepare SQL query
+			String query = "SELECT * FROM topping WHERE topping_TopName = ?";
+			PreparedStatement stmt = conn.prepareStatement(query);
+			stmt.setString(1, name); // Replace the placeholder with the name
+
+			// Execute the query
+			ResultSet rs = stmt.executeQuery();
+
+			// If a result is found, create the Topping object
+			if (rs.next()) {
+				topping = new Topping(
+						rs.getInt("topping_TopID"),
+						rs.getString("topping_TopName"),
+						rs.getDouble("topping_SmallAMT"),
+						rs.getDouble("topping_MedAMT"),
+						rs.getDouble("topping_LgAMT"),
+						rs.getDouble("topping_XLAMT"),
+						rs.getDouble("topping_CustPrice"),
+						rs.getDouble("topping_BusPrice"),
+						rs.getInt("topping_MinINVT"),
+						rs.getInt("topping_CurINVT")
+				);
+			}
+		} catch (SQLException e) {
+			e.printStackTrace();
+			throw e;
+		} finally {
+			conn.close();
+		}
+
+		return topping;
 	}
 
 	public static ArrayList<Topping> getToppingsOnPizza(Pizza p) throws SQLException, IOException 
@@ -577,8 +823,41 @@ public final class DBNinja {
 		 * This method builds an ArrayList of the toppings ON a pizza.
 		 * The list can then be added to the Pizza object elsewhere in the
 		 */
+		connect_to_db();
+		ArrayList<Topping> toppings = new ArrayList<>();
+		try {
+			String toppingQuery = "SELECT t.*, pt.pizza_topping_IsDouble FROM topping t " +
+					"JOIN pizza_topping pt ON t.topping_TopID = pt.topping_TopID " +
+					"WHERE pt.pizza_PizzaID = ?";
+			PreparedStatement toppingStmt = conn.prepareStatement(toppingQuery);
+			toppingStmt.setInt(1, p.getPizzaID());
+			ResultSet rs = toppingStmt.executeQuery();
 
-		return null;	
+			while (rs.next()) {
+				int topID = rs.getInt("topping_TopID");
+				String topName = rs.getString("topping_TopName");
+				double smallAmt = rs.getDouble("topping_SmallAMT");
+				double medAmt = rs.getDouble("topping_MedAMT");
+				double lgAmt = rs.getDouble("topping_LgAMT");
+				double xlAmt = rs.getDouble("topping_XLAMT");
+				double custPrice = rs.getDouble("topping_CustPrice");
+				double busPrice = rs.getDouble("topping_BusPrice");
+				int minINVT = rs.getInt("topping_MinINVT");
+				int curINVT = rs.getInt("topping_CurINVT");
+				boolean isDoubled = rs.getInt("pizza_topping_IsDouble") == 1;
+
+				Topping topping = new Topping(topID, topName, smallAmt, medAmt, lgAmt, xlAmt, custPrice, busPrice, minINVT, curINVT);
+				topping.setDoubled(isDoubled);
+
+				toppings.add(topping);
+			}
+		} catch (SQLException e) {
+			e.printStackTrace();
+			throw e;
+		} finally {
+			conn.close();
+		}
+		return toppings;
 	}
 
 	public static void addToInventory(int toppingID, double quantity) throws SQLException, IOException 
@@ -587,6 +866,19 @@ public final class DBNinja {
 		 * Updates the quantity of the topping in the database by the amount specified.
 		 * 
 		 * */
+		connect_to_db();
+		try {
+			String query = "UPDATE topping SET topping_CurINVT = topping_CurINVT + ? WHERE topping_TopID = ?";
+			PreparedStatement stmt = conn.prepareStatement(query);
+			stmt.setDouble(1, quantity);
+			stmt.setInt(2, toppingID);
+			stmt.executeUpdate();
+		} catch (SQLException e) {
+			e.printStackTrace();
+			throw e;
+		} finally {
+			conn.close();
+		}
 	}
 	
 	
@@ -706,24 +998,6 @@ public final class DBNinja {
 		 * Query the database fro the base customer price for that size and crust pizza.
 		 * 
 		*/
-		connect_to_db();
-		try {
-
-			String query = "SELECT baseprice_CustPrice FROM baseprice WHERE baseprice_Size = ? AND basepriceCrustType = ?";
-			PreparedStatement stmt = conn.prepareStatement(query);
-			stmt.setString(1, size);
-			stmt.setString(2, crust);
-			ResultSet rs = stmt.executeQuery();
-
-			if (rs.next()) {
-				return rs.getDouble("baseprice_CustPrice");
-			}
-		} catch (SQLException e) {
-			e.printStackTrace();
-			throw e;
-		} finally {
-			conn.close();
-		}
 		return 0.0;
 	}
 
@@ -733,25 +1007,6 @@ public final class DBNinja {
 		 * Query the database fro the base business price for that size and crust pizza.
 		 * 
 		*/
-
-		connect_to_db();
-		try {
-
-			String query = "SELECT baseprice_BusPrice FROM baseprice WHERE baseprice_Size = ? AND basepriceCrustType = ?";
-			PreparedStatement stmt = conn.prepareStatement(query);
-			stmt.setString(1, size);
-			stmt.setString(2, crust);
-			ResultSet rs = stmt.executeQuery();
-
-			if (rs.next()) {
-				return rs.getDouble("baseprice_BusPrice");
-			}
-		} catch (SQLException e) {
-			e.printStackTrace();
-			throw e;
-		} finally {
-			conn.close();
-		}
 		return 0.0;
 	}
 
@@ -771,18 +1026,6 @@ public final class DBNinja {
 		 * better.
 		 * 
 		 */
-		connect_to_db();
-		try {
-			String query = "SELECT * FROM toppingpopularity ORDER BY toppingpopularity_ToppingPopularity DESC";
-			Statement stmt = conn.createStatement();
-			ResultSet rs = stmt.executeQuery(query);
-			while (rs.next()) {
-				int toppingID = rs.getInt("toppingpopularity_ToppingID");
-				String toppingName = rs.getString("toppingpopularity_ToppingName");
-				int popularity = rs.getInt("toppingpopularity_Popularity");
-				System.out.printf("%-10s %-10s %d\n", toppingName, toppingID, popularity);
-			}
-		}
 	}
 	
 	public static void printProfitByPizzaReport() throws SQLException, IOException 
@@ -817,7 +1060,6 @@ public final class DBNinja {
 		 * better.
 		 * 
 		 */
-		
 	}
 	
 	
